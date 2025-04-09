@@ -17,7 +17,7 @@ DataSleuth is a lightweight, zero-configuration tool that provides instant insig
 
 ### Download Binary
 
-Download the pre-built binary for your platform from the [releases page](https://github.com/yourusername/datasleuth/releases).
+Download the pre-built binary for your platform from the [releases page](https://github.com/kamalm96/datasleuth/releases/tag/v0.1.0).
 
 ### From Source
 
