@@ -1,0 +1,54 @@
+name: Go
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Test
+        run: go test -v ./...
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Build for Windows
+        run: GOOS=windows GOARCH=amd64 go build -o datasleuth_windows_amd64.exe ./cmd/datasleuth
+
+      - name: Build for macOS
+        run: GOOS=darwin GOARCH=amd64 go build -o datasleuth_macos_amd64 ./cmd/datasleuth
+
+      - name: Build for Linux
+        run: GOOS=linux GOARCH=amd64 go build -o datasleuth_linux_amd64 ./cmd/datasleuth
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries
+          path: |
+            datasleuth_windows_amd64.exe
+            datasleuth_macos_amd64
+            datasleuth_linux_amd64
