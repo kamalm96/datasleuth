@@ -4,8 +4,6 @@
 
 DataSleuth is a lightweight, zero-configuration tool that provides instant insights into datasets. Point it at a CSV file and immediately get a comprehensive profile of your data's structure, quality, and statistical properties - no setup or Python environment required.
 
-![DataSleuth Terminal Output](https://via.placeholder.com/800x400?text=DataSleuth+Terminal+Output)
-
 ## Features
 
 - **One-Command Data Profiling**: Get schema info, statistics, and quality checks with a single command
