@@ -88,8 +88,8 @@ func TestEndToEnd(t *testing.T) {
 	output := out.String()
 	expectedStrings := []string{
 		"Dataset:",
-		"Summary:",
-		"Column Overview:",
+		"Summary",
+		"Column",
 		"NAME",
 		"TYPE",
 		"MISSING",

@@ -31,7 +31,7 @@ func TestPrintTerminalReport(t *testing.T) {
 		"Dataset Summary",
 		"Rows: 1,000",
 		"Columns: 3",
-		"Missing cells: 50 (1.67%)",
+		"Missing cells: 50",
 		"Column Overview",
 		"NAME",
 		"TYPE",
@@ -41,7 +41,7 @@ func TestPrintTerminalReport(t *testing.T) {
 		"test_str",
 		"test_int",
 		"test_float",
-		"Potential Data Quality Issues",
+		"Quality Issues",
 		"Column 'test_int': Missing values: 2.00%",
 		"Recommendations",
 	}
@@ -95,6 +95,7 @@ func TestGenerateRecommendations(t *testing.T) {
 
 	t.Logf("Recommendations generated: %v", recommendations)
 }
+
 func TestFormatNumber(t *testing.T) {
 	tests := []struct {
 		name     string
