@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/kamalm96/datasleuth/internal/profiler"
@@ -19,6 +20,14 @@ type HTMLTemplateData struct {
 	FileSizeMB      float64
 }
 
+func parseFloat(s string) float64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return f
+}
+
 func GenerateHTMLReport(profile *profiler.DatasetProfile, outputPath string) error {
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"formatNumber":  formatNumberHTML,
@@ -28,6 +37,8 @@ func GenerateHTMLReport(profile *profiler.DatasetProfile, outputPath string) err
 		"div":           divideFloat,
 		"mul":           multiplyInts,
 		"percentage":    calculatePercentage,
+		"sub":           subtract,
+		"parseFloat":    parseFloat,
 	}).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML template: %w", err)
@@ -103,6 +114,10 @@ func calculatePercentage(part, total int) float64 {
 
 func multiplyInts(a, b int) int {
 	return a * b
+}
+
+func subtract(a, b int) int {
+	return a - b
 }
 
 const htmlTemplate = `<!DOCTYPE html>
@@ -216,6 +231,20 @@ const htmlTemplate = `<!DOCTYPE html>
             background-color: var(--primary-color);
             margin-right: 2px;
             flex: 1;
+            min-height: 1px;
+            transition: height 0.3s ease;
+        }
+        
+        .histogram-bar:hover {
+            background-color: #3949ab;
+        }
+        
+        .histogram-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.8em;
         }
         
         .quality-score {
@@ -268,6 +297,39 @@ const htmlTemplate = `<!DOCTYPE html>
             color: var(--secondary-color);
             font-size: 0.9em;
         }
+
+        /* Correlation matrix styles */
+        .correlation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .correlation-card {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .correlation-strong {
+            color: var(--success-color);
+            font-weight: bold;
+        }
+        
+        .correlation-moderate {
+            color: var(--warning-color);
+            font-weight: bold;
+        }
+        
+        .correlation-weak {
+            color: var(--secondary-color);
+        }
+        
+        .correlation-negative {
+            color: var(--error-color);
+        }
     </style>
 </head>
 <body>
@@ -317,6 +379,50 @@ const htmlTemplate = `<!DOCTYPE html>
                 {{end}}
             </ul>
         </div>
+        {{end}}
+
+        {{if .Profile.CorrelationMatrix}}
+        {{if gt (len .Profile.CorrelationMatrix.TopPairs) 0}}
+        <div class="card">
+            <h2>Column Correlations</h2>
+            <p>Statistical relationships between numeric columns:</p>
+            
+            <div class="correlation-grid">
+                {{range $pair := .Profile.CorrelationMatrix.TopPairs}}
+                <div class="correlation-card">
+                    <h3>
+                        {{$pair.Column1}} & {{$pair.Column2}}
+                    </h3>
+                    <p>
+                        Correlation: 
+							{{if ge (printf "%.1f" $pair.Correlation | parseFloat) 0.7}}
+						<span class="correlation-strong">Strong Positive ({{formatNumber $pair.Correlation}})</span>
+						{{else if ge (printf "%.1f" $pair.Correlation | parseFloat) 0.4}}
+						<span class="correlation-moderate">Moderate Positive ({{formatNumber $pair.Correlation}})</span>
+						{{else if ge (printf "%.1f" $pair.Correlation | parseFloat) 0.1}}
+						<span class="correlation-weak">Weak Positive ({{formatNumber $pair.Correlation}})</span>
+						{{else if le (printf "%.1f" $pair.Correlation | parseFloat) -0.7}}
+						<span class="correlation-strong correlation-negative">Strong Negative ({{formatNumber $pair.Correlation}})</span>
+						{{else if le (printf "%.1f" $pair.Correlation | parseFloat) -0.4}}
+						<span class="correlation-moderate correlation-negative">Moderate Negative ({{formatNumber $pair.Correlation}})</span>
+						{{else if le (printf "%.1f" $pair.Correlation | parseFloat) -0.1}}
+						<span class="correlation-weak correlation-negative">Weak Negative ({{formatNumber $pair.Correlation}})</span>
+						{{else}}
+						<span>Negligible ({{formatNumber $pair.Correlation}})</span>
+						{{end}}
+                    </p>
+                    <p>
+                  {{if ge $pair.Correlation 0.0}}
+						These variables tend to increase together.
+						{{else}}
+						As one variable increases, the other tends to decrease.
+						{{end}}
+                    </p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
         {{end}}
         
         <h2>Column Details</h2>
@@ -368,9 +474,24 @@ const htmlTemplate = `<!DOCTYPE html>
                 
                 {{if $col.IsNumeric}}
                 <div class="histogram">
+                    {{$maxCount := 0}}
                     {{range $bucket := $col.HistogramBuckets}}
-                    <div class="histogram-bar" style="height: {{percentage $bucket.Count $col.Count}}%"></div>
+                        {{if gt $bucket.Count $maxCount}}
+                            {{$maxCount = $bucket.Count}}
+                        {{end}}
                     {{end}}
+                    
+                    {{range $bucket := $col.HistogramBuckets}}
+                        {{$height := 0}}
+                        {{if gt $maxCount 0}}
+                            {{$height = div (mul $bucket.Count 100) $maxCount}}
+                        {{end}}
+                        <div class="histogram-bar" style="height: {{$height}}%;" title="{{formatNumber $bucket.LowerBound}} - {{formatNumber $bucket.UpperBound}}: {{$bucket.Count}}"></div>
+                    {{end}}
+                </div>
+                <div class="histogram-labels">
+                    <span>{{formatNumber (index $col.HistogramBuckets 0).LowerBound}}</span>
+                    <span style="float: right;">{{formatNumber (index $col.HistogramBuckets (sub (len $col.HistogramBuckets) 1)).UpperBound}}</span>
                 </div>
                 {{else if $col.IsCategorical}}
                 <h4>Top Values:</h4>

@@ -4,39 +4,70 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/kamalm96/datasleuth/internal/profiler"
 )
 
+var (
+	titleStyle   = color.New(color.FgHiCyan, color.Bold)
+	headerStyle  = color.New(color.FgBlue, color.Bold)
+	successStyle = color.New(color.FgGreen, color.Bold)
+	warnStyle    = color.New(color.FgYellow)
+	errorStyle   = color.New(color.FgRed)
+	infoStyle    = color.New(color.FgCyan)
+	boldStyle    = color.New(color.Bold)
+)
+
 func PrintTerminalReport(profile *profiler.DatasetProfile, verbose bool) {
-	fmt.Println("📋 Dataset Summary:")
-	fmt.Printf("   • Rows: %s\n", formatNumber(profile.RowCount))
-	fmt.Printf("   • Columns: %d\n", profile.ColumnCount)
+	qualityColor := successStyle
+	if profile.QualityScore < 70 {
+		qualityColor = errorStyle
+	} else if profile.QualityScore < 90 {
+		qualityColor = warnStyle
+	}
+
+	titleStyle.Printf("╔════════════════════════════════════════════════════════════╗\n")
+	titleStyle.Printf("║ %-58s ║\n", fmt.Sprintf("DATASLEUTH REPORT: %s", profile.Filename))
+	titleStyle.Printf("╚════════════════════════════════════════════════════════════╝\n\n")
+
+	fmt.Print("Quality Score: ")
+	qualityColor.Printf("%d/100", profile.QualityScore)
+	fmt.Println()
+
+	renderQualityBar(profile.QualityScore)
+	fmt.Println()
+
+	headerStyle.Println("📋 DATASET SUMMARY")
+	fmt.Printf("   ┌ Rows:          %s\n", formatNumber(profile.RowCount))
+	fmt.Printf("   ├ Columns:       %d\n", profile.ColumnCount)
 
 	if profile.MissingCells > 0 {
 		totalCells := profile.RowCount * profile.ColumnCount
 		missingPct := float64(profile.MissingCells) / float64(totalCells) * 100
-		fmt.Printf("   • Missing cells: %s (%.2f%%)\n", formatNumber(profile.MissingCells), missingPct)
+		fmt.Printf("   ├ Missing cells:  %s (%.2f%%)\n", formatNumber(profile.MissingCells), missingPct)
 	} else {
-		fmt.Printf("   • Missing cells: 0 (0.00%%)\n")
+		fmt.Printf("   ├ Missing cells:  0 (0.00%%)\n")
 	}
 
 	if profile.DuplicateRows > 0 {
 		dupPct := float64(profile.DuplicateRows) / float64(profile.RowCount) * 100
-		fmt.Printf("   • Duplicate rows: %s (%.2f%%)\n", formatNumber(profile.DuplicateRows), dupPct)
+		fmt.Printf("   ├ Duplicate rows: %s (%.2f%%)\n", formatNumber(profile.DuplicateRows), dupPct)
 	} else {
-		fmt.Printf("   • Duplicate rows: 0 (0.00%%)\n")
+		fmt.Printf("   ├ Duplicate rows: 0 (0.00%%)\n")
 	}
 
+	fmt.Printf("   └ Processing:    %.2f seconds\n", profile.ProcessingTime.Seconds())
 	fmt.Println()
 
-	fmt.Println("🔍 Column Overview:")
-	fmt.Printf("   %-12s %-10s %-8s %-8s %-20s %-10s\n", "NAME", "TYPE", "MISSING", "UNIQUE", "STATS", "ISSUES")
-	fmt.Printf("   %s\n", strings.Repeat("─", 76))
+	headerStyle.Println("🔍 COLUMN OVERVIEW")
+	fmt.Printf("   ┌─────────────────┬────────────┬──────────┬──────────┬─────────────────────┬───────────┐\n")
+	boldStyle.Printf("   │ %-15s │ %-10s │ %-8s │ %-8s │ %-19s │ %-9s │\n", "COLUMN", "TYPE", "MISSING", "UNIQUE", "STATS", "ISSUES")
+	fmt.Printf("   ├─────────────────┼────────────┼──────────┼──────────┼─────────────────────┼───────────┤\n")
 
 	for name, col := range profile.Columns {
 		colName := name
-		if len(colName) > 12 {
-			colName = colName[:9] + "..."
+		if len(colName) > 15 {
+			colName = colName[:12] + "..."
 		}
 
 		dataType := col.DataType
@@ -45,6 +76,12 @@ func PrintTerminalReport(profile *profiler.DatasetProfile, verbose bool) {
 		if profile.RowCount > 0 {
 			missingPct := float64(col.MissingCount) / float64(profile.RowCount) * 100
 			missingStr = fmt.Sprintf("%.2f%%", missingPct)
+
+			if missingPct > 20 {
+				missingStr = errorStyle.Sprintf(missingStr)
+			} else if missingPct > 5 {
+				missingStr = warnStyle.Sprintf(missingStr)
+			}
 		} else {
 			missingStr = "0.00%"
 		}
@@ -63,39 +100,48 @@ func PrintTerminalReport(profile *profiler.DatasetProfile, verbose bool) {
 		} else if col.IsDateTime {
 			statsStr = "datetime"
 		} else if col.IsCategorical && len(col.TopValues) > 0 {
-			topValuesStr := "["
-			for i, val := range col.TopValues {
-				if i > 0 {
-					topValuesStr += ", "
-				}
-				if len(topValuesStr) > 15 {
-					topValuesStr += "..."
-					break
-				}
-				topValuesStr += val.Value
+			topValue := col.TopValues[0].Value
+			if len(topValue) > 10 {
+				topValue = topValue[:7] + "..."
 			}
-			topValuesStr += "]"
-			statsStr = topValuesStr
+			topPct := float64(col.TopValues[0].Count) / float64(col.Count) * 100
+			statsStr = fmt.Sprintf("top: %s (%.1f%%)", topValue, topPct)
 		} else if col.IsUnique {
-			statsStr = "unique values"
+			statsStr = successStyle.Sprint("unique values")
 		} else {
 			statsStr = "-"
 		}
 
 		qualityMark := "✓"
 		if len(col.QualityIssues) > 0 {
-			qualityMark = "⚠️"
+			severity := 0
+			for _, issue := range col.QualityIssues {
+				if issue.Severity > severity {
+					severity = issue.Severity
+				}
+			}
+
+			switch severity {
+			case 1:
+				qualityMark = warnStyle.Sprintf("⚠ Low")
+			case 2:
+				qualityMark = warnStyle.Sprintf("⚠ Medium")
+			case 3:
+				qualityMark = errorStyle.Sprintf("⚠ High")
+			}
+		} else {
+			qualityMark = successStyle.Sprint("✓ Good")
 		}
 
-		fmt.Printf("   %-12s %-10s %-8s %-8s %-20s %-10s\n",
+		fmt.Printf("   │ %-15s │ %-10s │ %-8s │ %-8s │ %-19s │ %-9s │\n",
 			colName, dataType, missingStr, uniqueStr, statsStr, qualityMark)
 	}
 
-	fmt.Println()
+	fmt.Printf("   └─────────────────┴────────────┴──────────┴──────────┴─────────────────────┴───────────┘\n\n")
 
 	allIssues := collectAllIssues(profile)
 	if len(allIssues) > 0 {
-		fmt.Println("⚠️ Potential Data Quality Issues:")
+		headerStyle.Println("⚠️ QUALITY ISSUES")
 		for _, issue := range allIssues {
 			fmt.Printf("   • %s\n", issue)
 		}
@@ -104,12 +150,127 @@ func PrintTerminalReport(profile *profiler.DatasetProfile, verbose bool) {
 
 	recommendations := generateRecommendations(profile)
 	if len(recommendations) > 0 {
-		fmt.Println("💡 Recommendations:")
+		headerStyle.Println("💡 RECOMMENDATIONS")
 		for _, rec := range recommendations {
 			fmt.Printf("   • %s\n", rec)
 		}
 		fmt.Println()
 	}
+
+	if verbose {
+		headerStyle.Println("📊 COLUMN DETAILS")
+		for name, col := range profile.Columns {
+			fmt.Printf("\n   %s (%s)\n", boldStyle.Sprint(name), col.DataType)
+			fmt.Printf("   ├── Missing: %d (%.2f%%)\n", col.MissingCount, float64(col.MissingCount)/float64(profile.RowCount)*100)
+			fmt.Printf("   ├── Unique:  %d (%.2f%%)\n", col.UniqueCount, float64(col.UniqueCount)/float64(col.Count)*100)
+
+			if col.IsNumeric {
+				fmt.Printf("   ├── Min:     %v\n", col.Min)
+				fmt.Printf("   ├── Max:     %v\n", col.Max)
+				fmt.Printf("   ├── Mean:    %.4f\n", col.Mean)
+				fmt.Printf("   ├── Median:  %.4f\n", col.Median)
+				fmt.Printf("   ├── StdDev:  %.4f\n", col.StdDev)
+
+				if len(col.HistogramBuckets) > 0 {
+					fmt.Printf("   └── Histogram:\n\n")
+					maxCount := 0
+					for _, bucket := range col.HistogramBuckets {
+						if bucket.Count > maxCount {
+							maxCount = bucket.Count
+						}
+					}
+
+					maxBarWidth := 40
+					for i, bucket := range col.HistogramBuckets {
+						barWidth := 0
+						if maxCount > 0 {
+							barWidth = int(float64(bucket.Count) / float64(maxCount) * float64(maxBarWidth))
+						}
+
+						label := fmt.Sprintf("        [%.2f to %.2f]", bucket.LowerBound, bucket.UpperBound)
+						bar := strings.Repeat("█", barWidth)
+
+						if i == len(col.HistogramBuckets)-1 {
+							fmt.Printf("%s %s %d\n", label, bar, bucket.Count)
+						} else {
+							fmt.Printf("%s %s %d\n", label, bar, bucket.Count)
+						}
+					}
+				} else {
+					fmt.Printf("   └── No histogram available\n")
+				}
+			} else if col.IsCategorical && len(col.TopValues) > 0 {
+				fmt.Printf("   └── Top values:\n")
+
+				maxCount := 0
+				for _, val := range col.TopValues {
+					if val.Count > maxCount {
+						maxCount = val.Count
+					}
+				}
+
+				maxBarWidth := 30
+				for i, val := range col.TopValues {
+					barWidth := 0
+					if maxCount > 0 {
+						barWidth = int(float64(val.Count) / float64(maxCount) * float64(maxBarWidth))
+					}
+
+					valuePct := float64(val.Count) / float64(col.Count) * 100
+					bar := strings.Repeat("█", barWidth)
+
+					valueStr := val.Value
+					if len(valueStr) > 20 {
+						valueStr = valueStr[:17] + "..."
+					}
+
+					if i == len(col.TopValues)-1 {
+						fmt.Printf("        %-20s %s %d (%.2f%%)\n", valueStr, bar, val.Count, valuePct)
+					} else {
+						fmt.Printf("        %-20s %s %d (%.2f%%)\n", valueStr, bar, val.Count, valuePct)
+					}
+				}
+			} else {
+				fmt.Printf("   └── No detailed statistics available\n")
+			}
+
+			if len(col.QualityIssues) > 0 {
+				fmt.Println("\n   Quality Issues:")
+				for _, issue := range col.QualityIssues {
+					severityMarker := "⚠️ "
+					if issue.Severity == 2 {
+						severityMarker = warnStyle.Sprint("⚠️ ")
+					} else if issue.Severity == 3 {
+						severityMarker = errorStyle.Sprint("⚠️ ")
+					}
+					fmt.Printf("   %s %s\n", severityMarker, issue.Description)
+				}
+			}
+		}
+	}
+}
+
+func renderQualityBar(score int) {
+	totalBars := 50
+	filledBars := totalBars * score / 100
+
+	fmt.Print("   [")
+
+	for i := 0; i < totalBars; i++ {
+		if i < filledBars {
+			if score >= 90 {
+				successStyle.Print("█")
+			} else if score >= 70 {
+				warnStyle.Print("█")
+			} else {
+				errorStyle.Print("█")
+			}
+		} else {
+			fmt.Print("░")
+		}
+	}
+
+	fmt.Print("]")
 }
 
 func collectAllIssues(profile *profiler.DatasetProfile) []string {

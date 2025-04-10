@@ -1,24 +1,28 @@
 package profiler
 
 import (
+	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 type DatasetProfile struct {
-	Filename       string
-	FileSize       int64
-	Format         string
-	RowCount       int
-	ColumnCount    int
-	MissingCells   int
-	DuplicateRows  int
-	Columns        map[string]*ColumnProfile
-	QualityIssues  []QualityIssue
-	QualityScore   int
-	ProcessingTime time.Duration
-	CreatedAt      time.Time
+	Filename          string
+	FileSize          int64
+	Format            string
+	RowCount          int
+	ColumnCount       int
+	MissingCells      int
+	DuplicateRows     int
+	Columns           map[string]*ColumnProfile
+	QualityIssues     []QualityIssue
+	QualityScore      int
+	CorrelationMatrix *CorrelationMatrix
+	Recommendations   []string
+	ProcessingTime    time.Duration
+	CreatedAt         time.Time
 }
 
 type ColumnProfile struct {
@@ -61,11 +65,16 @@ type QualityIssue struct {
 func ProfileDataset(filePath string) (*DatasetProfile, error) {
 	extension := strings.ToLower(filepath.Ext(filePath))
 
+	startTime := time.Now()
+
+	var profile *DatasetProfile
+	var err error
+
 	switch extension {
 	case ".csv":
-		return ProfileCSV(filePath)
+		profile, err = ProfileCSV(filePath)
 	case ".parquet":
-		return &DatasetProfile{
+		profile = &DatasetProfile{
 			Filename:  filePath,
 			Format:    "Parquet",
 			CreatedAt: time.Now(),
@@ -76,9 +85,9 @@ func ProfileDataset(filePath string) (*DatasetProfile, error) {
 					Severity:    2,
 				},
 			},
-		}, nil
+		}
 	case ".json":
-		return &DatasetProfile{
+		profile = &DatasetProfile{
 			Filename:  filePath,
 			Format:    "JSON",
 			CreatedAt: time.Now(),
@@ -89,10 +98,46 @@ func ProfileDataset(filePath string) (*DatasetProfile, error) {
 					Severity:    2,
 				},
 			},
-		}, nil
+		}
 	default:
-		return ProfileCSV(filePath)
+		profile, err = ProfileCSV(filePath)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the quality score
+	profile.QualityScore = CalculateQualityScore(profile)
+
+	// Calculate correlations for numeric columns
+	profile.CorrelationMatrix = CalculateCorrelationMatrix(profile)
+
+	// Add correlation insights to recommendations
+	if profile.CorrelationMatrix != nil && len(profile.CorrelationMatrix.TopPairs) > 0 {
+		if profile.Recommendations == nil {
+			profile.Recommendations = []string{}
+		}
+
+		for _, pair := range profile.CorrelationMatrix.TopPairs {
+			if math.Abs(pair.Correlation) >= 0.7 {
+				var recommendation string
+				if pair.Correlation > 0 {
+					recommendation = fmt.Sprintf("Strong positive correlation (%.2f) between '%s' and '%s' - consider if one could be derived from the other",
+						pair.Correlation, pair.Column1, pair.Column2)
+				} else {
+					recommendation = fmt.Sprintf("Strong negative correlation (%.2f) between '%s' and '%s' - these features may provide complementary information",
+						pair.Correlation, pair.Column1, pair.Column2)
+				}
+
+				profile.Recommendations = append(profile.Recommendations, recommendation)
+			}
+		}
+	}
+
+	profile.ProcessingTime = time.Since(startTime)
+
+	return profile, nil
 }
 
 func CalculateQualityScore(profile *DatasetProfile) int {
